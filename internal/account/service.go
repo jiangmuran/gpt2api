@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -27,7 +26,7 @@ type CreateInput struct {
 	AuthToken        string    `json:"auth_token"`
 	RefreshToken     string    `json:"refresh_token"`
 	SessionToken     string    `json:"session_token"`
-	TokenExpiresAt   time.Time `json:"token_expires_at"`
+	TokenExpiresAt   FlexTime  `json:"token_expires_at"`
 	OAISessionID     string    `json:"oai_session_id"`
 	OAIDeviceID      string    `json:"oai_device_id"`
 	ClientID         string    `json:"client_id"`
@@ -46,7 +45,7 @@ type UpdateInput struct {
 	AuthToken        string    `json:"auth_token"`
 	RefreshToken     string    `json:"refresh_token"`
 	SessionToken     string    `json:"session_token"`
-	TokenExpiresAt   time.Time `json:"token_expires_at"`
+	TokenExpiresAt   FlexTime  `json:"token_expires_at"`
 	OAISessionID     string    `json:"oai_session_id"`
 	OAIDeviceID      string    `json:"oai_device_id"`
 	ClientID         string    `json:"client_id"`
@@ -105,7 +104,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Account, error) 
 		Status: StatusHealthy, Notes: in.Notes,
 	}
 	if !in.TokenExpiresAt.IsZero() {
-		a.TokenExpiresAt = sql.NullTime{Time: in.TokenExpiresAt, Valid: true}
+		a.TokenExpiresAt = sql.NullTime{Time: in.TokenExpiresAt.Time, Valid: true}
 	} else {
 		// 自动从 JWT 解析 exp
 		if exp := parseJWTExp(in.AuthToken); !exp.IsZero() {
@@ -164,7 +163,7 @@ func (s *Service) Update(ctx context.Context, id uint64, in UpdateInput) (*Accou
 		a.SessionTokenEnc = sql.NullString{String: enc, Valid: true}
 	}
 	if !in.TokenExpiresAt.IsZero() {
-		a.TokenExpiresAt = sql.NullTime{Time: in.TokenExpiresAt, Valid: true}
+		a.TokenExpiresAt = sql.NullTime{Time: in.TokenExpiresAt.Time, Valid: true}
 	} else if in.AuthToken != "" {
 		if exp := parseJWTExp(in.AuthToken); !exp.IsZero() {
 			a.TokenExpiresAt = sql.NullTime{Time: exp, Valid: true}
