@@ -77,7 +77,7 @@ func (h *MeHandler) List(c *gin.Context) {
 	}
 	tasks, err := h.dao.ListByUser(c.Request.Context(), uid, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	items := make([]taskView, 0, len(tasks))
@@ -105,7 +105,7 @@ func (h *MeHandler) Get(c *gin.Context) {
 			resp.Fail(c, 40400, "task not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	if t.UserID != uid {

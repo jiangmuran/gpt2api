@@ -4,6 +4,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
+	"github.com/432539/gpt2api/pkg/logger"
 )
 
 // 统一响应结构。HTTP status 只用于框架级错误(401/403/404/500);
@@ -59,6 +62,20 @@ func Conflict(c *gin.Context, msg string) { Fail(c, CodeConflict, msg) }
 func Internal(c *gin.Context, msg string) { Fail(c, CodeInternal, msg) }
 func PaymentRequired(c *gin.Context, msg string) { Fail(c, CodePaymentRequired, msg) }
 func RateLimited(c *gin.Context, msg string) { Fail(c, CodeRateLimited, msg) }
+
+// InternalErr 用于不愿意把原始 err.Error() 暴露给客户端的场景:
+// 记一条带 request_id/path 的 error 日志,向客户端只返回通用消息 "internal error"。
+// 使用:`resp.InternalErr(c, err)`。
+func InternalErr(c *gin.Context, err error) {
+	if err != nil {
+		logger.L().Error("handler internal error",
+			zap.String("path", c.FullPath()),
+			zap.String("method", c.Request.Method),
+			zap.String("request_id", traceID(c)),
+			zap.Error(err))
+	}
+	Fail(c, CodeInternal, "internal error")
+}
 
 func traceID(c *gin.Context) string {
 	if v, ok := c.Get("request_id"); ok {

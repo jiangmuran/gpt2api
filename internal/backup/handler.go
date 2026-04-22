@@ -48,7 +48,7 @@ func (h *Handler) Create(c *gin.Context) {
 	f, err := h.svc.Create(c.Request.Context(), actor, TriggerManual, includeData)
 	if err != nil {
 		audit.Record(c, h.auditDAO, "system.backup.create.failed", "", gin.H{"error": err.Error()})
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "system.backup.create", f.BackupID,
@@ -62,7 +62,7 @@ func (h *Handler) List(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	items, err := h.dao.List(c.Request.Context(), limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	total, _ := h.dao.Count(c.Request.Context())
@@ -87,7 +87,7 @@ func (h *Handler) Download(c *gin.Context) {
 			resp.NotFound(c, "backup not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	defer fh.Close()
@@ -119,7 +119,7 @@ func (h *Handler) Delete(c *gin.Context) {
 			resp.NotFound(c, "backup not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "system.backup.delete", id, nil)
@@ -149,7 +149,7 @@ func (h *Handler) Restore(c *gin.Context) {
 	audit.Record(c, h.auditDAO, "system.backup.restore.begin", id, nil)
 	if err := h.svc.Restore(c.Request.Context(), id); err != nil {
 		audit.Record(c, h.auditDAO, "system.backup.restore.failed", id, gin.H{"error": err.Error()})
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "system.backup.restore.success", id, nil)
@@ -176,7 +176,7 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 	src, err := fh.Open()
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	defer src.Close()

@@ -129,10 +129,18 @@ type NotifyPayload struct {
 // 签名失败返回 errInvalidSign(调用方打 warn 日志即可)。
 var ErrInvalidSign = errors.New("epay: invalid sign")
 
+// ErrPIDMismatch 回调商户号与本地配置不一致。
+var ErrPIDMismatch = errors.New("epay: pid mismatch")
+
 func (s *Signer) ParseNotify(form url.Values) (*NotifyPayload, error) {
 	params := map[string]string{}
 	for k := range form {
 		params[k] = form.Get(k)
+	}
+	// 先校验 pid 再校验签名:pid 不一致说明来源异常,直接拒绝,
+	// 不继续暴露 sign 校验细节(避免侧信道)。
+	if s.PID != "" && params["pid"] != s.PID {
+		return nil, ErrPIDMismatch
 	}
 	sign := params["sign"]
 	if !s.Verify(params, sign) {

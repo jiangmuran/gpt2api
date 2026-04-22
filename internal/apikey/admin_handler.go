@@ -70,14 +70,14 @@ LIMIT ? OFFSET ?`, ws)
 
 	rows := make([]adminKeyRow, 0, limit)
 	if err := h.db.SelectContext(c.Request.Context(), &rows, query, append(args, limit, offset)...); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	var total int64
 	if err := h.db.GetContext(c.Request.Context(), &total,
 		fmt.Sprintf(`SELECT COUNT(*) FROM api_keys k LEFT JOIN users u ON u.id = k.user_id WHERE %s`, ws),
 		args...); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 
@@ -107,7 +107,7 @@ func (h *AdminHandler) SetEnabled(c *gin.Context) {
 	}
 	k.Enabled = *req.Enabled
 	if err := h.dao.Update(c.Request.Context(), k); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"id": id, "enabled": k.Enabled})

@@ -20,7 +20,7 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) ListPackages(c *gin.Context) {
 	pkgs, err := h.svc.ListEnabledPackages(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{
@@ -70,7 +70,7 @@ func (h *Handler) CreateOrder(c *gin.Context) {
 		case errors.Is(err, ErrPackageUnavailable), errors.Is(err, ErrNotFound):
 			resp.NotFound(c, "套餐不存在或已下架")
 		default:
-			resp.Internal(c, err.Error())
+			resp.InternalErr(c, err)
 		}
 		return
 	}
@@ -88,7 +88,7 @@ func (h *Handler) ListMyOrders(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	rows, total, err := h.svc.ListUserOrders(c.Request.Context(), uid, c.Query("status"), offset, limit)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": rows, "total": total, "limit": limit, "offset": offset})
@@ -109,7 +109,7 @@ func (h *Handler) CancelOrder(c *gin.Context) {
 		case errors.Is(err, ErrOrderNotFound), errors.Is(err, ErrNotFound):
 			resp.NotFound(c, "订单不存在")
 		default:
-			resp.Internal(c, err.Error())
+			resp.InternalErr(c, err)
 		}
 		return
 	}

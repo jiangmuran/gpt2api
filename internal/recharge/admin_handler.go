@@ -45,7 +45,7 @@ func (h *AdminHandler) confirmAdmin(c *gin.Context) error {
 func (h *AdminHandler) ListPackages(c *gin.Context) {
 	rows, err := h.svc.AdminListPackages(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": rows, "total": len(rows)})
@@ -79,7 +79,7 @@ func (h *AdminHandler) CreatePackage(c *gin.Context) {
 	}
 	id, err := h.svc.AdminCreatePackage(c.Request.Context(), p)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	p.ID = id
@@ -105,7 +105,7 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 		Enabled:     req.Enabled,
 	}
 	if err := h.svc.AdminUpdatePackage(c.Request.Context(), p); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, p)
@@ -115,7 +115,7 @@ func (h *AdminHandler) UpdatePackage(c *gin.Context) {
 func (h *AdminHandler) DeletePackage(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.svc.AdminDeletePackage(c.Request.Context(), id); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"ok": true})
@@ -129,7 +129,7 @@ func (h *AdminHandler) ListOrders(c *gin.Context) {
 	rows, total, err := h.svc.AdminListOrders(c.Request.Context(),
 		ListFilter{UserID: uid, Status: c.Query("status")}, offset, limit)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": rows, "total": total, "limit": limit, "offset": offset})
@@ -151,7 +151,7 @@ func (h *AdminHandler) ForcePaid(c *gin.Context) {
 		case errors.Is(err, ErrNotFound):
 			resp.NotFound(c, "订单不存在")
 		default:
-			resp.Internal(c, err.Error())
+			resp.InternalErr(c, err)
 		}
 		return
 	}

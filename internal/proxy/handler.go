@@ -27,7 +27,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	p, err := h.svc.Create(c.Request.Context(), req)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, p)
@@ -45,7 +45,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	list, total, err := h.svc.List(c.Request.Context(), (page-1)*size, size)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": size})
@@ -72,7 +72,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	p, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, p)
@@ -111,7 +111,7 @@ func (h *Handler) Import(c *gin.Context) {
 		Remark: req.Remark, Overwrite: req.Overwrite,
 	})
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	// 统计
@@ -171,7 +171,7 @@ func (h *Handler) ProbeAll(c *gin.Context) {
 	}
 	results, err := h.prober.ProbeAll(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	ok, bad := 0, 0
@@ -194,7 +194,7 @@ func (h *Handler) ProbeAll(c *gin.Context) {
 func (h *Handler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"deleted": id})

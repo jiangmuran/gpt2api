@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -140,9 +142,59 @@ func Load(path string) (*Config, error) {
 			loadErr = fmt.Errorf("unmarshal config: %w", err)
 			return
 		}
+		if err := validateSecrets(&c); err != nil {
+			loadErr = err
+			return
+		}
 		global = &c
 	})
 	return global, loadErr
+}
+
+// validateSecrets 在启动时拒绝默认占位符、空串、低熵密钥。
+// 任一校验失败都会让进程启动失败 —— 宁可噪音也不要让生产环境默认密钥继续跑。
+func validateSecrets(c *Config) error {
+	if looksLikePlaceholder(c.JWT.Secret) {
+		return errors.New("config: jwt.secret looks like a placeholder (contains CHANGE_ME); generate one with `openssl rand -hex 32` and set via GPT2API_JWT_SECRET")
+	}
+	if len(c.JWT.Secret) < 32 {
+		return fmt.Errorf("config: jwt.secret too short (got %d bytes, need >= 32)", len(c.JWT.Secret))
+	}
+	if looksLikePlaceholder(c.Crypto.AESKey) {
+		return errors.New("config: crypto.aes_key looks like a placeholder (contains CHANGE_ME); generate one with `openssl rand -hex 32`")
+	}
+	if len(c.Crypto.AESKey) != 64 {
+		return fmt.Errorf("config: crypto.aes_key must be 64 hex chars (AES-256), got %d", len(c.Crypto.AESKey))
+	}
+	keyBytes, err := hex.DecodeString(c.Crypto.AESKey)
+	if err != nil {
+		return fmt.Errorf("config: crypto.aes_key must be hex: %w", err)
+	}
+	if isLowEntropyKey(keyBytes) {
+		return errors.New("config: crypto.aes_key has unacceptable entropy (all-zero / single-byte repeat); regenerate")
+	}
+	return nil
+}
+
+func looksLikePlaceholder(s string) bool {
+	up := strings.ToUpper(s)
+	return strings.Contains(up, "CHANGE_ME") || strings.Contains(up, "CHANGEME") ||
+		strings.Contains(up, "PLACEHOLDER") || s == ""
+}
+
+// isLowEntropyKey 拒绝全零或单字节重复的 AES 密钥。
+// 不做严格熵统计,只挡最显眼的"一眼假"场景。
+func isLowEntropyKey(b []byte) bool {
+	if len(b) == 0 {
+		return true
+	}
+	first := b[0]
+	for _, x := range b {
+		if x != first {
+			return false
+		}
+	}
+	return true
 }
 
 // Get 返回全局配置,仅在 Load 之后调用。

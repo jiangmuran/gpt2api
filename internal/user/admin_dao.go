@@ -110,6 +110,10 @@ func (d *DAO) Update(ctx context.Context, id uint64, p UpdatePatch) (int64, erro
 		return 0, nil
 	}
 	sets = append(sets, "version = version + 1")
+	// 若本次 UPDATE 影响到 role/status,一同 bump token_version 让旧 JWT 立即失效。
+	if p.Role != nil || p.Status != nil {
+		sets = append(sets, "token_version = token_version + 1")
+	}
 	q := "UPDATE users SET " + strings.Join(sets, ", ") + " WHERE id = ? AND deleted_at IS NULL"
 	args = append(args, id)
 
@@ -122,9 +126,11 @@ func (d *DAO) Update(ctx context.Context, id uint64, p UpdatePatch) (int64, erro
 }
 
 // ResetPassword 覆盖 password_hash。hash 由上层用 bcrypt 生成。
+// 同时 bump token_version,让该用户所有已签发的 JWT 立即失效。
 func (d *DAO) ResetPassword(ctx context.Context, id uint64, hash string) error {
 	res, err := d.db.ExecContext(ctx,
-		`UPDATE users SET password_hash = ?, version = version + 1
+		`UPDATE users
+            SET password_hash = ?, version = version + 1, token_version = token_version + 1
           WHERE id = ? AND deleted_at IS NULL`, hash, id)
 	if err != nil {
 		return err
@@ -138,9 +144,12 @@ func (d *DAO) ResetPassword(ctx context.Context, id uint64, hash string) error {
 
 // SoftDelete 将用户标记为删除(并不物理删除,也不回收其 api keys/usage 等)。
 // 被删除的用户无法登录,api key 按策略可单独吊销。
+// 同时 bump token_version,阻止用户用已有 JWT 继续访问(中间件会拿不到 token_version)。
 func (d *DAO) SoftDelete(ctx context.Context, id uint64) error {
 	res, err := d.db.ExecContext(ctx,
-		`UPDATE users SET deleted_at = NOW(), status = 'banned', version = version + 1
+		`UPDATE users
+            SET deleted_at = NOW(), status = 'banned',
+                version = version + 1, token_version = token_version + 1
           WHERE id = ? AND deleted_at IS NULL`, id)
 	if err != nil {
 		return err

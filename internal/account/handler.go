@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/432539/gpt2api/internal/audit"
 	"github.com/432539/gpt2api/internal/settings"
 	"github.com/432539/gpt2api/pkg/resp"
 )
@@ -27,9 +29,13 @@ type Handler struct {
 	prober        *QuotaProber
 	settings      *settings.Service
 	proxyResolver ProxyURLResolver
+	auditDAO      *audit.DAO
 }
 
 func NewHandler(s *Service) *Handler { return &Handler{svc: s} }
+
+// SetAudit 注入审计 DAO;用于记录管理员解密敏感数据(AT/RT/ST/Cookies)的访问。
+func (h *Handler) SetAudit(a *audit.DAO) { h.auditDAO = a }
 
 // SetRefresher 注入刷新器(可选,未注入时相关接口返回 501)。
 func (h *Handler) SetRefresher(r *Refresher) { h.refresher = r }
@@ -52,7 +58,7 @@ func (h *Handler) Create(c *gin.Context) {
 	}
 	a, err := h.svc.Create(c.Request.Context(), req)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, a)
@@ -75,7 +81,7 @@ func (h *Handler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
 	list, total, err := h.svc.List(c.Request.Context(), status, keyword, (page-1)*size, size)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": size})
@@ -102,7 +108,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	a, err := h.svc.Update(c.Request.Context(), id, req)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, a)
@@ -112,7 +118,7 @@ func (h *Handler) Update(c *gin.Context) {
 func (h *Handler) Delete(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"deleted": id})
@@ -120,13 +126,18 @@ func (h *Handler) Delete(c *gin.Context) {
 
 // GET /api/admin/accounts/:id/secrets
 // 仅管理员可用,返回 AT / RT / ST 明文用于编辑弹窗回显。
+// 敏感数据访问一律落审计,meta 中不包含明文,只记 account_id。
 func (h *Handler) GetSecrets(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	sec, err := h.svc.GetSecrets(c.Request.Context(), id)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		audit.Record(c, h.auditDAO, "accounts.get_secrets.failed",
+			strconv.FormatUint(id, 10), gin.H{"error": "get failed"})
+		resp.Internal(c, "fetch secrets failed")
 		return
 	}
+	audit.Record(c, h.auditDAO, "accounts.get_secrets",
+		strconv.FormatUint(id, 10), nil)
 	resp.OK(c, sec)
 }
 
@@ -151,7 +162,7 @@ func (h *Handler) BulkDelete(c *gin.Context) {
 	}
 	n, err := h.svc.BulkDeleteByStatus(c.Request.Context(), scope)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"deleted": n, "scope": scope})
@@ -193,7 +204,7 @@ func (h *Handler) SetAutoRefresh(c *gin.Context) {
 		settings.AccountRefreshAheadSec: "86400",
 	}
 	if err := h.settings.Set(c.Request.Context(), updates); err != nil {
-		resp.Internal(c, "保存失败:"+err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	if req.Enabled && h.refresher != nil {
@@ -226,7 +237,7 @@ func (h *Handler) BindProxy(c *gin.Context) {
 		return
 	}
 	if err := h.svc.BindProxy(c.Request.Context(), id, req.ProxyID); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"account_id": id, "proxy_id": req.ProxyID})
@@ -236,7 +247,7 @@ func (h *Handler) BindProxy(c *gin.Context) {
 func (h *Handler) UnbindProxy(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.svc.UnbindProxy(c.Request.Context(), id); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"account_id": id})
@@ -244,10 +255,22 @@ func (h *Handler) UnbindProxy(c *gin.Context) {
 
 // ===================== 批量导入 =====================
 
+// 批量导入限额,防止单次请求耗光内存/DB 连接。
+const (
+	maxImportBodyBytes = 32 << 20 // 单次 Import 总体不超过 32MB
+	maxImportFiles     = 50       // 最多一次上传 50 个文件
+	maxImportSingleMB  = 16       // 单个文件 <= 16MB
+	maxImportItems     = 5000     // 解析后的条目数上限
+	maxImportTokens    = 5000     // 批量导入 token 的条数上限
+)
+
 // POST /api/admin/accounts/import
 // body: { text: "...", update_existing: true, default_client_id: "", default_proxy_id: 0 }
 // 或 multipart/form-data:files[] + 其他字段
 func (h *Handler) Import(c *gin.Context) {
+	// 请求体硬上限,防内存打爆(对 JSON 和 multipart 都生效)。
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
+
 	var req struct {
 		Text            string `json:"text"`
 		UpdateExisting  *bool  `json:"update_existing"`
@@ -258,7 +281,7 @@ func (h *Handler) Import(c *gin.Context) {
 	ct := c.ContentType()
 	if ct == "application/json" {
 		if err := c.ShouldBindJSON(&req); err != nil {
-			resp.BadRequest(c, "请求参数错误:"+err.Error())
+			resp.BadRequest(c, "请求参数错误")
 			return
 		}
 	} else {
@@ -276,17 +299,26 @@ func (h *Handler) Import(c *gin.Context) {
 		}
 		// 多文件合并:允许前端一次上传 N 个 json
 		if form, err := c.MultipartForm(); err == nil && form != nil {
+			files := form.File["files"]
+			if len(files) > maxImportFiles {
+				resp.BadRequest(c, "too many files")
+				return
+			}
 			var sb strings.Builder
 			if req.Text != "" {
 				sb.WriteString(req.Text)
 				sb.WriteByte('\n')
 			}
-			for _, fh := range form.File["files"] {
+			for _, fh := range files {
+				if fh.Size > int64(maxImportSingleMB)*1024*1024 {
+					resp.BadRequest(c, "single file too large")
+					return
+				}
 				f, err := fh.Open()
 				if err != nil {
 					continue
 				}
-				data, err := io.ReadAll(f)
+				data, err := io.ReadAll(io.LimitReader(f, int64(maxImportSingleMB)*1024*1024+1))
 				_ = f.Close()
 				if err != nil || len(data) == 0 {
 					continue
@@ -305,7 +337,11 @@ func (h *Handler) Import(c *gin.Context) {
 
 	items, err := ParseJSONBlob(req.Text)
 	if err != nil {
-		resp.BadRequest(c, "解析失败:"+err.Error())
+		resp.BadRequest(c, "解析失败")
+		return
+	}
+	if len(items) > maxImportItems {
+		resp.BadRequest(c, "too many items")
 		return
 	}
 
@@ -347,6 +383,8 @@ func (h *Handler) Import(c *gin.Context) {
 //
 // 返回同 /import:ImportSummary。
 func (h *Handler) ImportTokens(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxImportBodyBytes)
+
 	var req struct {
 		Mode           string          `json:"mode"`
 		Tokens         json.RawMessage `json:"tokens"`
@@ -355,7 +393,7 @@ func (h *Handler) ImportTokens(c *gin.Context) {
 		DefaultProxyID uint64          `json:"default_proxy_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		resp.BadRequest(c, "请求参数错误:"+err.Error())
+		resp.BadRequest(c, "请求参数错误")
 		return
 	}
 
@@ -373,6 +411,10 @@ func (h *Handler) ImportTokens(c *gin.Context) {
 	}
 	if len(tokens) == 0 {
 		resp.BadRequest(c, "tokens 不能为空,请每行一个")
+		return
+	}
+	if len(tokens) > maxImportTokens {
+		resp.BadRequest(c, "too many tokens")
 		return
 	}
 
@@ -441,7 +483,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	res, err := h.refresher.RefreshByID(c.Request.Context(), id)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, res)
@@ -456,7 +498,7 @@ func (h *Handler) RefreshAll(c *gin.Context) {
 	}
 	ids, err := h.svc.dao.ListAllActiveIDs(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 
@@ -510,7 +552,7 @@ func (h *Handler) ProbeQuota(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	res, err := h.prober.ProbeByID(c.Request.Context(), id)
 	if err != nil && res == nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, res)
@@ -524,7 +566,7 @@ func (h *Handler) ProbeQuotaAll(c *gin.Context) {
 	}
 	ids, err := h.svc.dao.ListAllActiveIDs(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 

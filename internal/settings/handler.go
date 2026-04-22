@@ -78,7 +78,7 @@ func (h *Handler) Update(c *gin.Context) {
 		}
 	}
 	if err := h.svc.Set(c.Request.Context(), req.Items); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	if h.auditDAO != nil {
@@ -101,7 +101,7 @@ func (h *Handler) Update(c *gin.Context) {
 // Reload POST /api/admin/settings/reload
 func (h *Handler) Reload(c *gin.Context) {
 	if err := h.svc.Reload(c.Request.Context()); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"reloaded": true})

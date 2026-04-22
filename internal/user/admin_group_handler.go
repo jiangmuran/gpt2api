@@ -35,7 +35,7 @@ type groupReq struct {
 func (h *AdminGroupHandler) List(c *gin.Context) {
 	items, err := h.dao.ListGroups(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": items, "total": len(items)})
@@ -91,7 +91,7 @@ func (h *AdminGroupHandler) Update(c *gin.Context) {
 			resp.NotFound(c, "group not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "groups.update", strconv.FormatUint(id, 10), g)

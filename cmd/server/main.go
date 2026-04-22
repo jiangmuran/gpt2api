@@ -129,6 +129,7 @@ func main() {
 		RefreshTTLSec: cfg.JWT.RefreshTTLSec,
 	})
 	authSvc := auth.NewService(userDAO, jm, cfg.Security.BcryptCost)
+	authSvc.SetRedis(rdb)
 
 	gwH := &gateway.Handler{
 		Models:    modelReg,
@@ -245,6 +246,7 @@ func main() {
 	accountH.SetProber(accQuota)
 	accountH.SetSettings(settingsSvc)
 	accountH.SetProxyResolver(acctProxyResolver)
+	accountH.SetAudit(auditDAO)
 
 	// 把 resolver 注入到图片代理端点:下载图片时按 account_id 解出 AT/cookies/proxy。
 	imagesH.ImageAccResolver = acctProxyResolver
@@ -255,8 +257,9 @@ func main() {
 	go accQuota.Run(accBgCtx)
 
 	deps := &server.Deps{
-		Config: cfg,
-		JWT:    jm,
+		Config:  cfg,
+		JWT:     jm,
+		UserDAO: userDAO,
 
 		AuthH: auth.NewHandler(authSvc),
 		UserH: user.NewHandler(userDAO),

@@ -30,7 +30,7 @@ func (h *Handler) Me(c *gin.Context) {
 			resp.NotFound(c, "user not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	// 以 DB 中的 role 为准(避免 JWT 中旧 role 泄漏带来的提权)。
@@ -55,7 +55,7 @@ func (h *Handler) Menu(c *gin.Context) {
 			resp.NotFound(c, "user not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{
@@ -83,7 +83,7 @@ func (h *Handler) CreditLogs(c *gin.Context) {
 	}
 	items, total, err := h.dao.ListCreditLogs(c.Request.Context(), uid, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{

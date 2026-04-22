@@ -28,6 +28,9 @@ type Deps struct {
 	Config *config.Config
 	JWT    *pkgjwt.Manager
 
+	// UserDAO 用于 JWTAuth 中间件检查 token_version。
+	UserDAO *user.DAO
+
 	AuthH *auth.Handler
 	UserH *user.Handler
 
@@ -86,7 +89,7 @@ func New(d *Deps) *gin.Engine {
 			authGrp.POST("/refresh", d.AuthH.Refresh)
 		}
 
-		authed := api.Group("", middleware.JWTAuth(d.JWT))
+		authed := api.Group("", middleware.JWTAuth(d.JWT, d.UserDAO))
 		{
 			authed.GET("/me", d.UserH.Me)
 			authed.GET("/me/menu", d.UserH.Menu)
@@ -159,7 +162,7 @@ func New(d *Deps) *gin.Engine {
 
 		// admin 全组强制 RequireAdmin;所有写操作再通过 audit.Middleware 自动落审计。
 		adminMW := []gin.HandlerFunc{
-			middleware.JWTAuth(d.JWT),
+			middleware.JWTAuth(d.JWT, d.UserDAO),
 			middleware.RequireAdmin(),
 		}
 		if d.AuditDAO != nil {

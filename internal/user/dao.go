@@ -93,3 +93,23 @@ func (d *DAO) CountAll(ctx context.Context) (int, error) {
 		`SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`)
 	return n, err
 }
+
+// GetTokenVersion 返回 users.token_version,用于 JWTAuth 中间件比对 claim.tv。
+// 未找到 / 已软删的用户返回 ErrNotFound,让中间件拒绝 token。
+func (d *DAO) GetTokenVersion(ctx context.Context, id uint64) (uint64, error) {
+	var tv uint64
+	err := d.db.GetContext(ctx, &tv,
+		`SELECT token_version FROM users WHERE id = ? AND deleted_at IS NULL`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return tv, err
+}
+
+// BumpTokenVersion 递增指定用户的 token_version,导致其之前签发的所有 JWT 立即失效。
+// 调用时机:改密、改 role、改 status、软删。
+func (d *DAO) BumpTokenVersion(ctx context.Context, id uint64) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE users SET token_version = token_version + 1 WHERE id = ?`, id)
+	return err
+}

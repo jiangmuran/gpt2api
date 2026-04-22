@@ -85,7 +85,7 @@ func (r *upsertReq) validate(forCreate bool) error {
 func (h *AdminHandler) List(c *gin.Context) {
 	rows, err := h.dao.List(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": rows, "total": len(rows)})
@@ -121,7 +121,7 @@ func (h *AdminHandler) Create(c *gin.Context) {
 			resp.BadRequest(c, "slug 已存在")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	h.reloadRegistry(c)
@@ -153,7 +153,7 @@ func (h *AdminHandler) Update(c *gin.Context) {
 			resp.NotFound(c, "model not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	cur.Type = req.Type
@@ -167,7 +167,7 @@ func (h *AdminHandler) Update(c *gin.Context) {
 		cur.Enabled = *req.Enabled
 	}
 	if err := h.dao.Update(c.Request.Context(), cur); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	h.reloadRegistry(c)
@@ -196,7 +196,7 @@ func (h *AdminHandler) SetEnabled(c *gin.Context) {
 			resp.NotFound(c, "model not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	h.reloadRegistry(c)
@@ -218,7 +218,7 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 			resp.NotFound(c, "model not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	h.reloadRegistry(c)
@@ -231,7 +231,7 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 func (h *AdminHandler) ListEnabledForMe(c *gin.Context) {
 	rows, err := h.dao.ListEnabled(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	type simple struct {

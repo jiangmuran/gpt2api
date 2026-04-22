@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -320,14 +322,29 @@ func (s *Service) AdminListOrders(ctx context.Context, f ListFilter, offset, lim
 	return s.dao.List(ctx, f, offset, limit)
 }
 
+// AdminForcePaidMaxFen 单笔人工强制入账的金额上限(人民币分)。
+// 现实中绝大多数补单都在百元级别,此处限到 10 万元。越过此值说明
+// 要么订单金额录错、要么操作可疑 —— 应走正常回调或财务对账流程。
+const AdminForcePaidMaxFen = 10_000_000
+
+// ErrForcePaidExceedsLimit 人工入账金额超过 AdminForcePaidMaxFen。
+var ErrForcePaidExceedsLimit = errors.New("recharge: force-paid amount exceeds per-operation limit")
+
 // AdminForcePaid 管理员手工将 pending 订单置为已支付并入账(发卡出错时的应急通道)。
+// actorID 必填,会落入流水与审计。单笔金额受 AdminForcePaidMaxFen 限制。
 func (s *Service) AdminForcePaid(ctx context.Context, orderID uint64, actorID uint64) error {
+	if actorID == 0 {
+		return errors.New("actorID required")
+	}
 	o, err := s.dao.GetByID(ctx, orderID)
 	if err != nil {
 		return err
 	}
 	if o.Status != StatusPending {
 		return ErrOrderStateInvalid
+	}
+	if o.PriceCNY > AdminForcePaidMaxFen {
+		return ErrForcePaidExceedsLimit
 	}
 	res, err := s.dao.DB().ExecContext(ctx,
 		`UPDATE recharge_orders
@@ -342,7 +359,7 @@ func (s *Service) AdminForcePaid(ctx context.Context, orderID uint64, actorID ui
 	}
 	refID := fmt.Sprintf("order:%s", o.OutTradeNo)
 	remark := fmt.Sprintf("管理员手工入账:%s by admin=%d", o.Remark, actorID)
-	return s.billing.Recharge(ctx, o.UserID, o.TotalCredits(), refID, remark)
+	return s.billing.RechargeByAdmin(ctx, o.UserID, actorID, o.TotalCredits(), refID, remark)
 }
 
 // ---------- helpers ----------
@@ -367,17 +384,71 @@ func rawDump(m map[string]string) *string {
 	return &s
 }
 
-// verifyAmount 把 "12.00" 和 1200(分) 对比。
+// verifyAmount 把 "12.00" 元 和 wantFen(分) 纯整数比较。
+// 使用字符串切点号做整数解析,避免 float64 的边界精度误差(如 "10.005" -> 1000 vs 1001)。
 func verifyAmount(money string, wantFen int) error {
-	var f float64
-	if _, err := fmt.Sscanf(money, "%f", &f); err != nil {
+	got, err := parseYuanToFen(money)
+	if err != nil {
 		return fmt.Errorf("invalid money: %w", err)
 	}
-	got := int(f*100 + 0.5)
 	if got != wantFen {
 		return fmt.Errorf("amount mismatch: got %d fen, want %d", got, wantFen)
 	}
 	return nil
+}
+
+// parseYuanToFen 解析 "12" / "12.3" / "12.34" 为"分"整数。
+// 拒绝负数、超过 2 位小数、含非数字字符等异常格式。
+func parseYuanToFen(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("empty")
+	}
+	if s[0] == '+' {
+		s = s[1:]
+	}
+	if s == "" || s[0] == '-' {
+		return 0, errors.New("non-positive amount")
+	}
+	var intPart, fracPart string
+	if dot := strings.IndexByte(s, '.'); dot >= 0 {
+		intPart = s[:dot]
+		fracPart = s[dot+1:]
+		if len(fracPart) > 2 {
+			return 0, errors.New("too many decimals")
+		}
+	} else {
+		intPart = s
+	}
+	if intPart == "" {
+		intPart = "0"
+	}
+	for _, r := range intPart {
+		if r < '0' || r > '9' {
+			return 0, errors.New("invalid digit")
+		}
+	}
+	for _, r := range fracPart {
+		if r < '0' || r > '9' {
+			return 0, errors.New("invalid digit")
+		}
+	}
+	// pad 到 2 位
+	for len(fracPart) < 2 {
+		fracPart += "0"
+	}
+	yuan, err := strconv.Atoi(intPart)
+	if err != nil {
+		return 0, err
+	}
+	fen, err := strconv.Atoi(fracPart)
+	if err != nil {
+		return 0, err
+	}
+	if yuan < 0 || fen < 0 {
+		return 0, errors.New("negative amount")
+	}
+	return yuan*100 + fen, nil
 }
 
 // nowUTC 抽离以便单测 stub。

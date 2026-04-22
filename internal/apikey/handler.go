@@ -32,7 +32,7 @@ func (h *Handler) Create(c *gin.Context) {
 			resp.Fail(c, resp.CodeBadRequest, "已达到单用户最多可创建 Key 数")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, out)
@@ -55,7 +55,7 @@ func (h *Handler) List(c *gin.Context) {
 	}
 	list, total, err := h.svc.List(c.Request.Context(), userID, (page-1)*size, size)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"list": list, "total": total, "page": page, "page_size": size})
@@ -76,7 +76,7 @@ func (h *Handler) Update(c *gin.Context) {
 	}
 	k, err := h.svc.Update(c.Request.Context(), userID, id, req)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, k)
@@ -91,7 +91,7 @@ func (h *Handler) Delete(c *gin.Context) {
 	}
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err := h.svc.Delete(c.Request.Context(), userID, id); err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"deleted": id})

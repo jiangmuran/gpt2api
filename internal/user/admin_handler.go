@@ -45,7 +45,7 @@ func (h *AdminHandler) List(c *gin.Context) {
 		GroupID: groupID,
 	}, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": items, "total": total, "limit": limit, "offset": offset})
@@ -63,7 +63,7 @@ func (h *AdminHandler) Get(c *gin.Context) {
 			resp.NotFound(c, "user not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, u)
@@ -146,7 +146,7 @@ func (h *AdminHandler) ResetPassword(c *gin.Context) {
 			resp.NotFound(c, "user not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "users.reset_password", strconv.FormatUint(id, 10), nil)
@@ -174,7 +174,7 @@ func (h *AdminHandler) Delete(c *gin.Context) {
 			resp.NotFound(c, "user not found")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "users.delete", strconv.FormatUint(id, 10), nil)
@@ -218,7 +218,7 @@ func (h *AdminHandler) Adjust(c *gin.Context) {
 			resp.BadRequest(c, "积分不足")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "users.credit.adjust", strconv.FormatUint(id, 10),
@@ -236,7 +236,7 @@ func (h *AdminHandler) CreditLogs(c *gin.Context) {
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	items, total, err := h.dao.ListCreditLogs(c.Request.Context(), id, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{"items": items, "total": total, "limit": limit, "offset": offset})
@@ -261,7 +261,7 @@ func (h *AdminHandler) CreditLogsGlobal(c *gin.Context) {
 	}
 	items, total, err := h.dao.ListCreditLogsGlobal(c.Request.Context(), f, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{
@@ -277,7 +277,7 @@ func (h *AdminHandler) CreditLogsGlobal(c *gin.Context) {
 func (h *AdminHandler) CreditsSummary(c *gin.Context) {
 	s, err := h.dao.CreditSummary(c.Request.Context())
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, s)
@@ -314,7 +314,7 @@ func (h *AdminHandler) AdjustByUser(c *gin.Context) {
 			resp.BadRequest(c, "余额不足")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	audit.Record(c, h.auditDAO, "users.credit.adjust",

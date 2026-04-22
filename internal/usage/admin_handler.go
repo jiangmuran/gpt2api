@@ -56,22 +56,22 @@ func (h *AdminHandler) Stats(c *gin.Context) {
 
 	overall, err := h.qdao.Overall(c.Request.Context(), f)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	daily, err := h.qdao.Daily(c.Request.Context(), f, days)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	byModel, err := h.qdao.ByModel(c.Request.Context(), f, topN)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	byUser, err := h.qdao.ByUser(c.Request.Context(), f, topN)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{
@@ -91,7 +91,7 @@ func (h *AdminHandler) Logs(c *gin.Context) {
 
 	rows, total, err := h.qdao.List(c.Request.Context(), f, offset, limit)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	resp.OK(c, gin.H{

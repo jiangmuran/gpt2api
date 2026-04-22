@@ -28,7 +28,7 @@ func (h *Handler) List(c *gin.Context) {
 
 	items, err := h.dao.List(c.Request.Context(), actorID, action, limit, offset)
 	if err != nil {
-		resp.Internal(c, err.Error())
+		resp.InternalErr(c, err)
 		return
 	}
 	total, _ := h.dao.Count(c.Request.Context(), actorID, action)

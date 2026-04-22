@@ -31,7 +31,7 @@ func JWTAsPlaygroundKey(svc *apikey.Service) gin.HandlerFunc {
 		}
 		k, err := svc.EnsureInternalKey(c.Request.Context(), uid)
 		if err != nil {
-			resp.Internal(c, err.Error())
+			resp.InternalErr(c, err)
 			c.Abort()
 			return
 		}

@@ -926,8 +926,27 @@ func fetchReferenceBytes(ctx context.Context, s string) ([]byte, string, error) 
 		if err != nil {
 			return nil, "", err
 		}
-		// 15s 基本能覆盖 OSS / CDN / presigned URL
-		hc := &http.Client{Timeout: 15 * time.Second}
+		// SSRF 防护:
+		// 1) Transport.DialContext 在 TCP 握手前校验已解析 IP,拒绝
+		//    loopback / link-local / private / unspecified / multicast,
+		//    同时挡住"域名解析到内网"(含 DNS rebinding)的路径。
+		// 2) 禁止跟随重定向,避免上游把我们重定向到内网。
+		// 3) 15s 超时覆盖 OSS/CDN/presigned URL。
+		hc := &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           safeDialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          16,
+				IdleConnTimeout:       30 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 		res, err := hc.Do(req)
 		if err != nil {
 			return nil, "", err
@@ -936,9 +955,14 @@ func fetchReferenceBytes(ctx context.Context, s string) ([]byte, string, error) 
 		if res.StatusCode >= 400 {
 			return nil, "", fmt.Errorf("下载失败 HTTP %d", res.StatusCode)
 		}
+		// 读超限后立即丢弃剩余数据,避免上游继续占用连接。
 		body, err := io.ReadAll(io.LimitReader(res.Body, int64(maxReferenceImageBytes)+1))
 		if err != nil {
 			return nil, "", err
+		}
+		if len(body) > maxReferenceImageBytes {
+			_, _ = io.Copy(io.Discard, res.Body)
+			return nil, "", fmt.Errorf("reference image exceeds %d bytes", maxReferenceImageBytes)
 		}
 		name := filepath.Base(req.URL.Path)
 		return body, name, nil

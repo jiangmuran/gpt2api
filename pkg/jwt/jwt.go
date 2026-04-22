@@ -9,9 +9,12 @@ import (
 )
 
 // Claims 是 JWT 的 payload。
+// TokenVersion 与 users.token_version 对应,调用方在中间件层校验是否一致,
+// 不一致即视作失效 —— 用于密码修改 / 角色变更 / 强制下线场景。
 type Claims struct {
-	UserID uint64 `json:"uid"`
-	Role   string `json:"role"`
+	UserID       uint64 `json:"uid"`
+	Role         string `json:"role"`
+	TokenVersion uint64 `json:"tv,omitempty"`
 	jwtv5.RegisteredClaims
 }
 
@@ -72,14 +75,15 @@ func (m *Manager) currentTTLs() (time.Duration, time.Duration) {
 }
 
 // Issue 签发一对 token。
-func (m *Manager) Issue(userID uint64, role string) (*TokenPair, error) {
+// tokenVersion 应传 users.token_version 当前值,验证侧会比对。
+func (m *Manager) Issue(userID uint64, role string, tokenVersion uint64) (*TokenPair, error) {
 	now := time.Now()
 	accessTTL, refreshTTL := m.currentTTLs()
-	access, err := m.signWithTTL(userID, role, "access", now, accessTTL)
+	access, err := m.signWithTTL(userID, role, tokenVersion, "access", now, accessTTL)
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := m.signWithTTL(userID, role, "refresh", now, refreshTTL)
+	refresh, err := m.signWithTTL(userID, role, tokenVersion, "refresh", now, refreshTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +95,11 @@ func (m *Manager) Issue(userID uint64, role string) (*TokenPair, error) {
 	}, nil
 }
 
-func (m *Manager) signWithTTL(userID uint64, role, typ string, now time.Time, ttl time.Duration) (string, error) {
+func (m *Manager) signWithTTL(userID uint64, role string, tokenVersion uint64, typ string, now time.Time, ttl time.Duration) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Role:   role,
+		UserID:       userID,
+		Role:         role,
+		TokenVersion: tokenVersion,
 		RegisteredClaims: jwtv5.RegisteredClaims{
 			Issuer:    m.issuer,
 			Subject:   fmt.Sprintf("%d", userID),
@@ -108,8 +113,9 @@ func (m *Manager) signWithTTL(userID uint64, role, typ string, now time.Time, tt
 	return tok.SignedString(m.secret)
 }
 
-// Verify 验证 access token 并返回 claims。
-func (m *Manager) Verify(tokenString string) (*Claims, error) {
+// parseAndCheckSig 仅做签名、算法与 NBF/EXP 校验,不检查 iss/aud。
+// 供 Verify / VerifyRefresh 复用。
+func (m *Manager) parseAndCheckSig(tokenString string) (*Claims, error) {
 	tok, err := jwtv5.ParseWithClaims(tokenString, &Claims{}, func(t *jwtv5.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwtv5.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -123,19 +129,44 @@ func (m *Manager) Verify(tokenString string) (*Claims, error) {
 	if !ok || !tok.Valid {
 		return nil, errors.New("invalid token")
 	}
+	// Issuer 强制校验:防止其它系统复用同一 secret 签发的 token 通过本系统校验。
+	if m.issuer != "" && claims.Issuer != m.issuer {
+		return nil, errors.New("invalid issuer")
+	}
 	return claims, nil
 }
 
-// VerifyRefresh 验证 refresh token(多一步 audience 校验)。
-func (m *Manager) VerifyRefresh(tokenString string) (*Claims, error) {
-	claims, err := m.Verify(tokenString)
+// hasAudience 检查 claims 中是否包含指定 audience。
+func hasAudience(claims *Claims, want string) bool {
+	for _, a := range claims.Audience {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Verify 验证 access token 并返回 claims。
+// 强制要求 aud 包含 "access",避免 refresh token 被用作 access token。
+func (m *Manager) Verify(tokenString string) (*Claims, error) {
+	claims, err := m.parseAndCheckSig(tokenString)
 	if err != nil {
 		return nil, err
 	}
-	for _, aud := range claims.Audience {
-		if aud == "refresh" {
-			return claims, nil
-		}
+	if !hasAudience(claims, "access") {
+		return nil, errors.New("not an access token")
 	}
-	return nil, errors.New("not a refresh token")
+	return claims, nil
+}
+
+// VerifyRefresh 验证 refresh token。
+func (m *Manager) VerifyRefresh(tokenString string) (*Claims, error) {
+	claims, err := m.parseAndCheckSig(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	if !hasAudience(claims, "refresh") {
+		return nil, errors.New("not a refresh token")
+	}
+	return claims, nil
 }

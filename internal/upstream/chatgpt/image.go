@@ -722,7 +722,10 @@ func (c *Client) FetchImage(ctx context.Context, signedURL string, maxBytes int6
 	if maxBytes <= 0 {
 		maxBytes = 16 * 1024 * 1024 // 16MB 默认
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, signedURL, nil)
+	// 给整个 HTTP 请求一个独立的超时上下文,避免慢速上游耗干连接。
+	fetchCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, signedURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -745,12 +748,19 @@ func (c *Client) FetchImage(ctx context.Context, signedURL string, maxBytes int6
 	if res.StatusCode >= 400 {
 		return nil, "", &UpstreamError{Status: res.StatusCode, Message: "fetch image failed"}
 	}
+	// 预检 Content-Length,大响应直接拒掉,省去下游 OOM 风险。
+	if res.ContentLength > 0 && res.ContentLength > maxBytes {
+		return nil, res.Header.Get("Content-Type"),
+			fmt.Errorf("image declared length %d exceeds max %d", res.ContentLength, maxBytes)
+	}
 	ct := res.Header.Get("Content-Type")
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxBytes+1))
 	if err != nil {
 		return nil, ct, err
 	}
 	if int64(len(body)) > maxBytes {
+		// 把剩余数据丢掉,避免连接复用时占用带宽。
+		_, _ = io.Copy(io.Discard, res.Body)
 		return nil, ct, fmt.Errorf("image exceeds max bytes (%d)", maxBytes)
 	}
 	return body, ct, nil

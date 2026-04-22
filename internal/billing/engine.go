@@ -193,6 +193,18 @@ func (e *Engine) Refund(ctx context.Context, userID, keyID uint64, expected int6
 
 // Recharge 充值(订单回调使用)。
 func (e *Engine) Recharge(ctx context.Context, userID uint64, amount int64, refID, remark string) error {
+	return e.rechargeInternal(ctx, userID, 0, amount, refID, remark)
+}
+
+// RechargeByAdmin 管理员手工触发的充值入账,actorID 会落入流水表用于审计。
+func (e *Engine) RechargeByAdmin(ctx context.Context, userID, actorID uint64, amount int64, refID, remark string) error {
+	if actorID == 0 {
+		return errors.New("actorID required for admin recharge")
+	}
+	return e.rechargeInternal(ctx, userID, actorID, amount, refID, remark)
+}
+
+func (e *Engine) rechargeInternal(ctx context.Context, userID, actorID uint64, amount int64, refID, remark string) error {
 	if amount <= 0 {
 		return errors.New("amount must be positive")
 	}
@@ -210,9 +222,9 @@ func (e *Engine) Recharge(ctx context.Context, userID uint64, amount int64, refI
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO credit_transactions
-             (user_id, key_id, type, amount, balance_after, ref_id, remark)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			userID, 0, KindRecharge, amount, balanceAfter, refID, remark)
+             (user_id, key_id, type, amount, balance_after, ref_id, remark, actor_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			userID, 0, KindRecharge, amount, balanceAfter, refID, remark, actorID)
 		return err
 	})
 }

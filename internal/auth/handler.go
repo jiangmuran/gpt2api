@@ -61,7 +61,7 @@ func (h *Handler) Register(c *gin.Context) {
 			resp.BadRequest(c, "password is too short")
 			return
 		}
-		resp.Internal(c, err.Error())
+		resp.Internal(c, "register failed")
 		return
 	}
 	resp.OK(c, u)
@@ -81,8 +81,10 @@ func (h *Handler) Login(c *gin.Context) {
 			resp.Unauthorized(c, "invalid email or password")
 		case errors.Is(err, ErrUserBanned):
 			resp.Forbidden(c, "user banned")
+		case errors.Is(err, ErrLoginRateLimited):
+			resp.RateLimited(c, "too many failed login attempts, please retry later")
 		default:
-			resp.Internal(c, err.Error())
+			resp.Internal(c, "login failed")
 		}
 		return
 	}
@@ -98,7 +100,7 @@ func (h *Handler) Refresh(c *gin.Context) {
 	}
 	pair, err := h.svc.Refresh(c.Request.Context(), req.RefreshToken)
 	if err != nil {
-		resp.Unauthorized(c, err.Error())
+		resp.Unauthorized(c, "refresh token invalid or expired")
 		return
 	}
 	resp.OK(c, pair)
